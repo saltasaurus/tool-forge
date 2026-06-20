@@ -1,0 +1,23 @@
+
+# Python
+__pycache__/
+*.pyc
+dist/
+*.egg-info/
+
+# Tools
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ML
+*.safetensors
+*.bin
+*.pt
+*.gguf
+wandb/
+data/
+
+# env
+.env
