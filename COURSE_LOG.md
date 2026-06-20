@@ -49,27 +49,23 @@
 
 ## Current state / next action  ← UPDATE THIS EACH SESSION
 
-**LESSON 0 nearly closed.** Socratic baseline checkpoint **PASSED**; Python version **decided**.
-One small item still owed by the user before Lesson 0 is officially done:
+**LESSON 1 COMPLETE** (commit `da7584a`). Reproducible scaffold is in place:
+- `uv` packaged project, **src-layout** (`src/tool_forge/`), interpreter pinned **3.12.11**.
+- `requires-python = ">=3.12, <3.13"` (minor-level contract; lockfile is the exact pin).
+- `ruff` (E,F,I,UP,B) + `mypy strict=true` (config-pinned, src-aware) — **both green** on the empty package.
+- First commit tracks design doc + `CLAUDE.md` + `COURSE_LOG.md` + `pyproject.toml` + `uv.lock` +
+  `.python-version`. No `__pycache__`/`.venv` leaked.
 
-- **Pin + GPU check (owed):** `uv python pin 3.12.11`, then confirm `nvidia-smi` sees the 4070
-  *inside WSL*. (The `torch.cuda.is_available()` probe is deferred — `torch` doesn't exist until
-  Lesson 1's `uv add`; don't ask for it yet.)
+**Still owed from Lesson 0 (deferred, not blocking):** confirm `nvidia-smi` sees the 4070 *inside WSL*;
+the `torch.cuda.is_available()` probe waits until `torch` is added (Phase 2/SFT). Don't ask yet.
 
-**Resolved this session:**
-- **Python = 3.12.11** (uv-managed, hermetic). Rule taught: interpreter version is set by the
-  most-fragile dependency tier (bitsandbytes/Unsloth/Triton/flash-attn), not language features.
-  `requires-python = ">=3.12,<3.13"` to be encoded in `pyproject.toml` next lesson.
-- **Baseline Socratic — passed.** User gave 2 of ≥3 distinct failures (comparability/regression;
-  attribution). Supplied the two missed: **harness-validation** (baseline smoke-tests the eval
-  pipeline — can't tell bad model from broken plumbing) and **per-category diagnosis**. The
-  size/cost point the user offered was flagged valid-but-off-target.
-
-**NEXT, once the pin + nvidia-smi land:** give the scaffolding spec for **Lesson 1** — `uv` project + `src/tool_forge/`
-skeleton + `ruff`/`mypy --strict` green on an empty package + first commit (design doc tracked).
-**Then Lesson 2:** build the load-bearing pure core — `schema.py` (Pydantic `ToolSpec`/`ToolCall`/
-`PreferencePair`) and `align/verifier.py` (the verifier reused by pair-mining, the GRPO reward, *and*
-eval) — with their tests, since they're pure, GPU-free, and unblock everything.
+**NEXT — LESSON 2: the load-bearing pure core.** Build `schema.py` (Pydantic v2 `ToolSpec` /
+`ToolCall` / `PreferencePair`) and `align/verifier.py` (parse + validate a tool call against its
+JSON Schema). These are **pure, GPU-free, and unblock everything** — the verifier powers pair-mining,
+the GRPO reward, *and* eval, so it gets the most tests. Suggested small-step order: (a) design the
+three schema types + *why each field exists*; (b) write `ToolSpec`/`ToolCall` with a test; (c) the
+verifier as a pure function with its failure-mode taxonomy; (d) `PreferencePair`. Keep `verifier.py`
+and `format.py` pure (no I/O, no global state); specific exceptions only.
 
 ## Session log (newest last)
 
@@ -81,3 +77,9 @@ eval) — with their tests, since they're pure, GPU-free, and unblock everything
   supplied harness-validation + per-category). `/reflect` written → vault project resolved to
   **ToolCaller** (folder ambiguity; user confirmed). Wrote devlog + decision (3.12.11) +
   ml-research-assistant learnings. Only `uv python pin 3.12.11` + WSL `nvidia-smi` still owed.
+- **2026-06-20** — **Lesson 1 complete** (commit `da7584a`). Built the uv src-layout scaffold; taught
+  src-layout (import shadowing / source-vs-installed divergence), the two pin mechanisms
+  (`requires-python` minor contract vs `.python-version`/`uv.lock` exact), strict-from-zero ratchet,
+  and that `.gitignore` is not retroactive (caught a staged `.pyc` via read-before-commit). ruff+mypy
+  green. Promoted the 4 baseline failure-modes to a vault concept note (`Evaluation-Baseline`).
+  Next: Lesson 2 pure core (`schema.py` + `verifier.py`).
