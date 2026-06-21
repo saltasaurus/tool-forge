@@ -8,8 +8,11 @@ authors = [
 ]
 requires-python = ">=3.12, <3.13"
 dependencies = [
+    "huggingface-hub>=1.20.1",
     "jsonschema>=4.26.0",
+    "numpy>=2.5.0",
     "pydantic>=2.13.4",
+    "torch>=2.12.1",
 ]
 
 [project.scripts]

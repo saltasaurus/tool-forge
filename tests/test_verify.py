@@ -6,6 +6,7 @@ from tool_forge.verify import MalformedSpecError, VerificationResult, verify
 
 @pytest.fixture
 def registry() -> dict[str, ToolSpec]:
+    """Creates a ToolSpec that holds the jsonschema for a Weather schema"""
     WEATHER_SCHEMA = {
         "type": "object",
         "properties": {
