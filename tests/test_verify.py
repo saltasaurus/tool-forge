@@ -1,7 +1,7 @@
 import pytest
 
-from tool_forge.schema import ToolCall, ToolSpec
-from tool_forge.verify import MalformedSpecError, VerificationOutcome, VerificationResult, verify
+from tool_forge.schema import ToolCall, ToolSpec, VerificationOutcome
+from tool_forge.verify import MalformedSpecError, VerificationResult, verify
 
 
 @pytest.fixture

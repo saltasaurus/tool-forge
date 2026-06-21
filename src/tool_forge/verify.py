@@ -1,15 +1,8 @@
-from enum import Enum
-
 import jsonschema
 from pydantic import BaseModel, ConfigDict
 
-from .schema import ToolCall, ToolSpec
+from .schema import ToolCall, ToolSpec, VerificationOutcome
 
-
-class VerificationOutcome(Enum):
-    VALID = "VALID"
-    UNKNOWN_TOOL = "UNKNOWN_TOOL"
-    SCHEMA_VIOLATION = "SCHEMA_VIOLATION"
 
 class VerificationResult(BaseModel):
 
