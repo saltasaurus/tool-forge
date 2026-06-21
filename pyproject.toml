@@ -7,7 +7,10 @@ authors = [
     { name = "Shaun J", email = "shaunjullens@gmail.com" }
 ]
 requires-python = ">=3.12, <3.13"
-dependencies = []
+dependencies = [
+    "jsonschema>=4.26.0",
+    "pydantic>=2.13.4",
+]
 
 [project.scripts]
 tool-forge = "tool_forge:main"
@@ -19,13 +22,18 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "mypy>=2.1.0",
+    "pytest>=9.1.1",
     "ruff>=0.15.18",
+    "types-jsonschema>=4.26.0.20260518",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src"]                 # what to check
+files = ["src", "tests"]                 # what to check
 mypy_path = "src"               # first-party modules
 explicit_package_bases = true   # src/ is base dir, package is `tool_forge`
 
@@ -37,3 +45,5 @@ indent-width = 4
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+fixable = ["ALL"]
+
