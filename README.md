@@ -22,20 +22,44 @@ accumulation) exists to fit that budget. Measured: bf16 Qwen3-4B serving uses **
 5. **Eval** — BFCL per-category + custom metrics (JSON-validity %, schema-compliance %, hallucinated-tool rate).
 6. **Serve + agent** — merge adapter, serve via vLLM, run a ReAct loop.
 
-## Results (to fill)
+## Results
 
-| Model | BFCL-V4 overall | Simple | Multiple | Parallel | Multi-turn |
-|-------|----------------:|-------:|---------:|---------:|-----------:|
-| base (Qwen3-4B) | — | — | — | — | — |
-| + SFT           | — | — | — | — | — |
-| + aligned       | — | — | — | — | — |
+Base model `Qwen/Qwen3-4B-Instruct-2507-FC`, **untouched**, on BFCL-V4.
+Repro: greedy (`temperature=0.0`), `bfcl-eval==2025.12.17`, vLLM 0.21.0, bf16, `--max-model-len 12288`.
+
+| Stage | Non-Live AST | Live | Multi-turn | Overall (full V4) |
+|-------|-------------:|-----:|-----------:|------------------:|
+| **base** | **88.31%** | **76.31%** | _pending_ | _partial¹_ |
+| + SFT     | — | — | — | — |
+| + aligned | — | — | — | — |
+
+¹ BFCL's single "Overall" blends sections not yet run (multi-turn, agentic), so it is **not**
+meaningful until those land — track the section columns, not the headline. Agentic (web search,
+memory) is **excluded by design** (out of training distribution; non-deterministic external services).
+
+<details><summary>Base per-category breakdown (single-turn)</summary>
+
+| Non-Live (hand-written) | Acc | Live (real prompts) | Acc |
+|---|--:|---|--:|
+| simple_python      | 95.25% | live_simple            | 78.68% |
+| simple_java        | 64.00% | live_multiple          | 76.16% |
+| simple_javascript  | 68.00% | live_parallel          | 62.50% |
+| multiple           | 94.50% | live_parallel_multiple | 66.67% |
+| parallel           | 93.00% | live_relevance         | 87.50% |
+| parallel_multiple  | 90.00% | live_irrelevance       | 81.22% |
+| irrelevance        | 89.17% | | |
+
+**Reading:** already strong on Python AST (90–95%); weak on **non-Python** (`java` 64%,
+`javascript` 68%) and **live parallel** calls (62–67%) — the headroom SFT/DPO must target.
+</details>
 
 ## Status
 
 - ✅ Scaffold: `uv` (Python 3.12.11), `ruff` + `mypy --strict` + `pytest`, all green.
 - ✅ Pure core: `schema.py` (`ToolSpec` / `ToolCall` / `PreferencePair`), `verify.py` (JSON-Schema verifier), full tests.
 - ✅ GPU verified, vLLM serving Qwen3-4B confirmed on WSL2.
-- ⬜ Baseline BFCL number → next.
+- ✅ Baseline (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
+- ⬜ Multi-turn baseline → next, then Phase 1 (data pipeline).
 
 ## Setup
 
