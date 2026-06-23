@@ -4,14 +4,15 @@ Post-train a small instruction-tuned LLM for reliable multi-step **tool use**, e
 public **Berkeley Function Calling Leaderboard (BFCL-V4)**, and serve it behind an OpenAI-compatible
 API with a minimal ReAct loop — **all on a single 12 GB RTX 4070**.
 
-Base model: **Qwen3-4B**. The résumé artifact is a `base → SFT → aligned` BFCL accuracy table.
+Base model: **Qwen3-4B-Instruct-2507** (non-thinking, function-calling mode). The résumé artifact is a `base → SFT → aligned` BFCL accuracy table.
 
 ## The constraint drives everything
 
 One consumer GPU. On a desktop-driving 4070, ~2 GB goes to the display, leaving **~10 GB usable**.
 Every choice (QLoRA 4-bit, adapter-disabled reference model, short context, batch-size-1 + grad
-accumulation) exists to fit that budget. Measured: bf16 Qwen3-4B serving uses **7.56 GiB weights +
-1.38 GiB KV cache** at `gpu_memory_utilization=0.80`.
+accumulation) exists to fit that budget. Measured: bf16 Qwen3-4B-Instruct-2507 serving uses
+**~7.64 GiB weights + ~2.5 GiB KV cache** (18.5k tokens) at `gpu_memory_utilization=0.90`,
+`--max-model-len 12288`.
 
 ## Pipeline (do not reorder)
 
@@ -57,7 +58,7 @@ memory) is **excluded by design** (out of training distribution; non-determinist
 
 - ✅ Scaffold: `uv` (Python 3.12.11), `ruff` + `mypy --strict` + `pytest`, all green.
 - ✅ Pure core: `schema.py` (`ToolSpec` / `ToolCall` / `PreferencePair`), `verify.py` (JSON-Schema verifier), full tests.
-- ✅ GPU verified, vLLM serving Qwen3-4B confirmed on WSL2.
+- ✅ GPU verified, vLLM serving Qwen3-4B-Instruct-2507 confirmed on WSL2.
 - ✅ Baseline (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
 - ⬜ Multi-turn baseline → next, then Phase 1 (data pipeline).
 
@@ -68,16 +69,36 @@ uv sync                 # core deps + dev tools (ruff, mypy, pytest)
 uv run ruff check . && uv run mypy && uv run pytest
 ```
 
-## Serving (WSL2 — separate from the training env)
+## Serving + baseline eval (WSL2 — separate from the training env)
 
 vLLM is installed imperatively (not in the lockfile) because serving and training have conflicting
-torch pins. **Pin vLLM to 0.21.0** — 0.23 + CUDA 13 crashes on WSL2 (UVA unavailable).
+torch pins. The self-healing recipe lives in [`scripts/`](scripts/); run from a clean GPU:
 
 ```bash
 uv pip install "vllm==0.21.0" --torch-backend auto
-export VLLM_USE_FLASHINFER_SAMPLER=0     # FlashInfer's JIT sampler needs nvcc, which we don't install
-uv run vllm serve Qwen/Qwen3-4B --gpu-memory-utilization 0.80 --max-model-len 4096
+./scripts/serve_baseline.sh                  # terminal A: serve, wait for "Application startup complete"
+./scripts/run_baseline_auto.sh single_turn   # terminal B: generate (resume loop survives WSL hangs)
+./scripts/eval_bfcl.sh single_turn           # score → bfcl_scores/ (CPU-only; reads sealed gold)
 ```
+
+Hard-won WSL2 pins, all encoded in `serve_baseline.sh`:
+
+- **`vllm==0.21.0`** — 0.23 + CUDA 13 crashes on WSL2 (UVA unavailable).
+- **`VLLM_USE_FLASHINFER_SAMPLER=0` and no `--kv-cache-dtype fp8`** — anything that makes vLLM
+  JIT-compile a FlashInfer kernel needs `nvcc`, which isn't installed. fp8 forces FlashInfer; bf16
+  KV stays on prebuilt `FLASH_ATTN`.
+- **`--max-model-len 12288`** (not 4096) — BFCL reserves up to 4096 output tokens against the model's
+  *native* 262K context, so the served window must hold `prompt + 4096`; 4096 overflows real prompts.
+- **`--gpu-memory-utilization 0.90 --enforce-eager`** — fits bf16 weights + KV in ~10 GB usable.
+- **`LD_LIBRARY_PATH` → venv `nvidia/*/lib`** — CUDA libs ship as pip wheels in the venv; after a
+  WSL/shell restart the linker can't find `libcudart.so.13` until this is re-exported.
+- **Reap orphans after a crash** — `vllm serve` spawns an `EngineCore` child that Ctrl-C does *not*
+  kill (it keeps holding VRAM): `pkill -9 -f 'EngineCore'` (also `bin/vllm`, `bin/bfcl`).
+
+Eval is pinned to `bfcl-eval==2025.12.17`. `--skip-server-setup` points BFCL at the running server;
+greedy decoding (`--temperature 0.0`) for reproducibility. Result/score dirs use **absolute** paths
+because BFCL resolves relative `--result-dir`/`--score-dir` against its *package* root, not your CWD.
+**Agentic categories (web search, memory) are excluded** — they need live external services.
 
 ## Stack
 
