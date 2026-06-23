@@ -11,7 +11,7 @@ dist/
 .ruff_cache/
 .pytest_cache/
 
-# ML
+# ML weights, tracking, data
 *.safetensors
 *.bin
 *.pt
@@ -25,3 +25,6 @@ data/
 # Markdown files used for goal setting
 CLAUDE.md
 COURSE_LOG.md
+
+# Testing results
+bfcl_results/
