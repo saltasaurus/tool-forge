@@ -32,3 +32,9 @@ class PreferencePair(BaseModel):
     rejected: ToolCall
     rejection_reason: VerificationOutcome
 
+class Conversation(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    
+    query: str
+    tools: dict[str, ToolSpec]
+    gold_calls: tuple[ToolCall, ...]

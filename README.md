@@ -23,6 +23,76 @@ accumulation) exists to fit that budget. Measured: bf16 Qwen3-4B-Instruct-2507 s
 5. **Eval** — BFCL per-category + custom metrics (JSON-validity %, schema-compliance %, hallucinated-tool rate).
 6. **Serve + agent** — merge adapter, serve via vLLM, run a ReAct loop.
 
+## Architecture
+
+The spine is `schema.py` — every module speaks its types; nothing speaks "xLAM-ese" past
+`normalize`. The pure core (`schema` / `verify` / `normalize` / `split` / `format`) is I/O-free and
+unit-tested; the edge (HF load, W&B, vLLM, trainers) is where side effects live.
+
+**Data flow** (✅ built · 🔨 in progress · ⬜ planned):
+
+```mermaid
+flowchart LR
+    XLAM[("xLAM rows<br/>HF, gated")]
+    NORM["normalize.py 🔨<br/>row → Conversation"]
+    VERIFY["verify.py ✅<br/>validate gold calls"]
+    SPLIT["split.py ⬜<br/>hash → train/dev/test"]
+    FORMAT["format.py ⬜<br/>→ chat template"]
+    WANDB[("W&B artifact")]
+    SCHEMA["schema.py ✅<br/>shared types"]
+
+    XLAM --> NORM --> VERIFY --> SPLIT --> FORMAT --> WANDB
+    SCHEMA -. types .-> NORM
+    SCHEMA -. types .-> VERIFY
+    SCHEMA -. types .-> SPLIT
+    SCHEMA -. types .-> FORMAT
+    VERIFY -. quarantine counts<br/>converter feedback .-> NORM
+```
+
+`verify.py` is reused three times — Phase 1 (filter gold), Phase 3 (grade generated calls, *strict*),
+Phase 5 (guard agent calls) — which is why it stays pure and dependency-free.
+
+**Core types** (`schema.py`):
+
+```mermaid
+classDiagram
+    class ToolSpec {
+        +str name
+        +str description
+        +dict parameters
+    }
+    class ToolCall {
+        +str name
+        +dict arguments
+        +str id
+    }
+    class Conversation {
+        +int id
+        +str query
+        +dict~str,ToolSpec~ tools
+        +tuple~ToolCall~ gold_calls
+    }
+    class PreferencePair {
+        +str query
+        +dict~str,ToolSpec~ tools
+        +ToolCall chosen
+        +ToolCall rejected
+        +VerificationOutcome rejection_reason
+    }
+    class VerificationResult {
+        +VerificationOutcome result
+        +str detail
+    }
+    Conversation o-- ToolSpec : tools
+    Conversation o-- ToolCall : gold_calls
+    PreferencePair o-- ToolSpec : tools
+    PreferencePair o-- ToolCall : chosen / rejected
+    VerificationResult ..> VerificationOutcome
+```
+
+`Conversation` (SFT) and `PreferencePair` (DPO) are siblings — both carry `query` + `tools`; one holds
+gold calls, the other a chosen/rejected pair.
+
 ## Results
 
 Base model `Qwen/Qwen3-4B-Instruct-2507-FC`, **untouched**, on BFCL-V4.
