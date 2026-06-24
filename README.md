@@ -30,7 +30,7 @@ Repro: greedy (`temperature=0.0`), `bfcl-eval==2025.12.17`, vLLM 0.21.0, bf16, `
 
 | Stage | Non-Live AST | Live | Multi-turn | Overall (full V4) |
 |-------|-------------:|-----:|-----------:|------------------:|
-| **base** | **88.31%** | **76.31%** | _pending_ | _partial¹_ |
+| **base** | **88.31%** | **76.31%** | **17.50%** | _partial¹_ |
 | + SFT     | — | — | — | — |
 | + aligned | — | — | — | — |
 
@@ -54,13 +54,29 @@ memory) is **excluded by design** (out of training distribution; non-determinist
 `javascript` 68%) and **live parallel** calls (62–67%) — the headroom SFT/DPO must target.
 </details>
 
+<details><summary>Base per-category breakdown (multi-turn)</summary>
+
+| Multi-turn category | Acc |
+|---|--:|
+| base          | 25.50% |
+| miss_func     | 21.50% |
+| miss_param    | 17.50% |
+| long_context  |  5.50% |
+| **overall**   | **17.50%** |
+
+**Reading:** the expected difficulty gradient — `base` highest, `long_context` lowest. Stateful
+multi-step execution is the hardest BFCL section for a 4B; the clean spread (not a flat near-zero)
+confirms the harness is scoring real behavior. This is the biggest headroom for SFT/alignment.
+</details>
+
 ## Status
 
 - ✅ Scaffold: `uv` (Python 3.12.11), `ruff` + `mypy --strict` + `pytest`, all green.
 - ✅ Pure core: `schema.py` (`ToolSpec` / `ToolCall` / `PreferencePair`), `verify.py` (JSON-Schema verifier), full tests.
 - ✅ GPU verified, vLLM serving Qwen3-4B-Instruct-2507 confirmed on WSL2.
 - ✅ Baseline (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
-- ⬜ Multi-turn baseline → next, then Phase 1 (data pipeline).
+- ✅ Baseline (multi-turn): Overall **17.50%** (base 25.50% / miss_func 21.50% / miss_param 17.50% / long_context 5.50%).
+- ⬜ Phase 1 (data pipeline) → next.
 
 ## Setup
 
