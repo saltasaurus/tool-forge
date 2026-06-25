@@ -142,6 +142,19 @@ class TestToObjectSchema:
         assert BASE_TYPES["int"] == {"type": "integer"}
         assert "description" not in BASE_TYPES["int"]
 
+    def test_default_in_description_is_optional(self) -> None:
+        # Default documented only in the description prose -> still optional (not required).
+        params: dict[str, XLAMParamSpec] = {
+            "permitivity": {
+                "type": "float",
+                "description": "Permitivity of the space, default is 8.854e-12.",
+            },
+        }
+
+        result = to_object_schema(params)
+
+        assert result["required"] == []
+
 
 class TestNormalizeRow:
     def test_real_xlam_row(self) -> None:

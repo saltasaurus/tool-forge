@@ -77,9 +77,9 @@ def convert_type(type_str: str) -> JSONSchema:
         case "union":
             return {"anyOf": [convert_type(p) for p in _split_top_level(inner)]}
         case "callable":
-            # A function has no JSON representation. Emit a
-            # permissive schema (accepts anything) and log it for coverage tracking.
-            logger.warning("Non-representable type %r -> permissive schema", type_str)
+            # A function has no JSON representation. Emit a permissive schema; record at
+            # debug level for coverage tracking (Callable is common, so avoid warn-spam).
+            logger.debug("Non-representable type %r -> permissive schema", type_str)
             return {}
         case _:
             raise NotImplementedError(head)
@@ -98,11 +98,14 @@ def to_object_schema(parameters: dict[str, XLAMParamSpec]) -> JSONSchema:
     json_spec: dict[str, JSONSchema] = {}
     for name, spec in parameters.items():
         type_expr, is_optional = strip_modifiers(str(spec["type"]))
+        description = str(spec["description"])
         json_spec[name] = {
-            "description": str(spec["description"]),
+            "description": description,
             **convert_type(type_str=type_expr).copy(),
         }
-        if not (is_optional or "default" in spec):
+        # Defaults hide in three places: the type string (strip_modifiers), a `default`
+        # key, or the description prose ("default is ..."). Any default => optional.
+        if not (is_optional or "default" in spec or "default" in description.lower()):
             required_params.append(name)
     return {
         "type": "object",
