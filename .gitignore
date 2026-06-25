@@ -21,6 +21,7 @@ data/
 
 # env
 .env
+.vscode
 
 # Markdown files used for goal setting
 CLAUDE.md
