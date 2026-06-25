@@ -1,8 +1,13 @@
+import json
 import logging
+from typing import Any
+
+from tool_forge.schema import Conversation, ToolCall, ToolSpec
 
 logger = logging.getLogger(__name__)
 
 type JSONSchema = dict[str, object]
+type XLAMParamSpec = dict[str, object] 
 
 # Leaf table: bare (bracketless) type strings -> JSON Schema fragment.
 # A type lives here only if it can appear *without* brackets in the corpus
@@ -87,3 +92,47 @@ def strip_modifiers(type_str: str) -> tuple[str, bool]:
     modifiers = parts[1:]
     is_optional = any(m == "optional" or m.startswith("default") for m in modifiers)
     return type_expr, is_optional
+
+def to_object_schema(parameters: dict[str, XLAMParamSpec]) -> JSONSchema:
+    required_params: list[str] = []
+    json_spec: dict[str, JSONSchema] = {}
+    for name, spec in parameters.items():
+        type_expr, is_optional = strip_modifiers(str(spec["type"]))
+        json_spec[name] = {
+            "description": str(spec["description"]),
+            **convert_type(type_str=type_expr).copy(),
+        }
+        if not (is_optional or "default" in spec):
+            required_params.append(name)
+    return {
+        "type": "object",
+        "properties": json_spec,
+        "required": required_params,
+    }
+
+def normalize_row(row: dict[str, Any]) -> Conversation:
+    """Convert one xLAM dataset row into a Conversation.
+
+    Only `tools` and `answers` are JSON-encoded strings, so only they are decoded.
+    `id` and `query` arrive already typed (`query` is plain text, NOT JSON).
+    """
+    tools_raw = json.loads(row["tools"])
+    answers_raw = json.loads(row["answers"])
+
+    registry: dict[str, ToolSpec] = {
+        tool["name"]: ToolSpec(
+            name=tool["name"],
+            description=tool["description"],
+            parameters=to_object_schema(tool["parameters"]),
+        )
+        for tool in tools_raw
+    }
+    gold_calls = tuple(
+        ToolCall(name=call["name"], arguments=call["arguments"]) for call in answers_raw
+    )
+    return Conversation(
+        id=row["id"],
+        query=row["query"],
+        tools=registry,
+        gold_calls=gold_calls,
+    )

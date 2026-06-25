@@ -1,6 +1,16 @@
+import json
+
 import pytest
 
-from tool_forge.normalize import convert_type, strip_modifiers
+from tool_forge.normalize import (
+    BASE_TYPES,
+    XLAMParamSpec,
+    convert_type,
+    normalize_row,
+    strip_modifiers,
+    to_object_schema,
+)
+from tool_forge.schema import Conversation, ToolCall, ToolSpec
 
 
 class TestConvertType:
@@ -81,3 +91,108 @@ class TestStripModifiers:
         res = strip_modifiers("List[Union[int, float]], optional")
 
         assert res == ("List[Union[int, float]]", True)
+
+
+class TestToObjectSchema:
+    def test_full_mapping(self) -> None:
+        # One required, one optional-via-string, one optional-via-default-key.
+        params: dict[str, XLAMParamSpec] = {
+            "location": {"type": "str", "description": "City name"},
+            "days": {"type": "int, optional", "description": "Forecast length"},
+            "units": {"type": "str", "description": "Unit", "default": "celsius"},
+        }
+
+        result = to_object_schema(params)
+
+        assert result == {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string", "description": "City name"},
+                "days": {"type": "integer", "description": "Forecast length"},
+                "units": {"type": "string", "description": "Unit"},
+            },
+            "required": ["location"],
+        }
+
+    def test_container_param_carries_description(self) -> None:
+        params: dict[str, XLAMParamSpec] = {"coords": {"type": "Tuple[float, float]", "description": "Lat/long"}}
+
+        result = to_object_schema(params)
+
+        assert result == {
+            "type": "object",
+            "properties": {
+                "coords": {
+                    "type": "array",
+                    "prefixItems": [{"type": "number"}, {"type": "number"}],
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Lat/long",
+                },
+            },
+            "required": ["coords"],
+        }
+
+    def test_does_not_mutate_base_types(self) -> None:
+        # Attaching `description` must not leak onto the shared BASE_TYPES fragment.
+        params: dict[str, XLAMParamSpec] = {"days": {"type": "int", "description": "Forecast length"}}
+
+        to_object_schema(params)
+
+        assert BASE_TYPES["int"] == {"type": "integer"}
+        assert "description" not in BASE_TYPES["int"]
+
+
+class TestNormalizeRow:
+    def test_real_xlam_row(self) -> None:
+        # Mirrors ds["train"][0]: tools/answers are JSON-encoded strings; id/query are not.
+        tools_obj = [
+            {
+                "name": "live_giveaways_by_type",
+                "description": "Retrieve live giveaways from the GamerPower API based on the specified type.",
+                "parameters": {
+                    "type": {
+                        "description": "The type of giveaways to retrieve (e.g., game, loot, beta).",
+                        "type": "str",
+                        "default": "game",
+                    },
+                },
+            },
+        ]
+        answers_obj = [
+            {"name": "live_giveaways_by_type", "arguments": {"type": "beta"}},
+            {"name": "live_giveaways_by_type", "arguments": {"type": "game"}},
+        ]
+        row = {
+            "id": 0,
+            "query": "Where can I find live giveaways for beta access and games?",
+            "tools": json.dumps(tools_obj),
+            "answers": json.dumps(answers_obj),
+        }
+
+        conv = normalize_row(row)
+
+        assert conv == Conversation(
+            id=0,
+            query="Where can I find live giveaways for beta access and games?",
+            tools={
+                "live_giveaways_by_type": ToolSpec(
+                    name="live_giveaways_by_type",
+                    description="Retrieve live giveaways from the GamerPower API based on the specified type.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "description": "The type of giveaways to retrieve (e.g., game, loot, beta).",
+                            },
+                        },
+                        "required": [],  # the only param has a default -> optional
+                    },
+                ),
+            },
+            gold_calls=(
+                ToolCall(name="live_giveaways_by_type", arguments={"type": "beta"}),
+                ToolCall(name="live_giveaways_by_type", arguments={"type": "game"}),
+            ),
+        )
