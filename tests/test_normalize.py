@@ -1,6 +1,6 @@
 import pytest
 
-from tool_forge.normalize import convert_type
+from tool_forge.normalize import convert_type, strip_modifiers
 
 
 class TestConvertType:
@@ -49,3 +49,35 @@ class TestConvertType:
     def test_unknown_head_raises(self) -> None:
         with pytest.raises(NotImplementedError):
             convert_type("FrozenSet[int]")
+
+class TestStripModifiers:
+
+    def test_no_modifier(self) -> None:
+        res = strip_modifiers("str")
+
+        assert res == ("str", False)
+
+    def test_optional_modifier(self) -> None:
+        res = strip_modifiers("str, optional")
+
+        assert res == ("str", True)
+
+    def test_optional_default_modifier(self) -> None:
+        res = strip_modifiers("str, optional, default=100")
+
+        assert res == ("str", True)
+
+    def test_default_modifier(self) -> None:
+        res = strip_modifiers("str, default='paris'")
+
+        assert res == ("str", True)
+
+    def test_no_container_modifier(self) -> None:
+        res = strip_modifiers("Tuple[float, float]")
+
+        assert res == ("Tuple[float, float]", False)
+
+    def test_container_optional(self) -> None:
+        res = strip_modifiers("List[Union[int, float]], optional")
+
+        assert res == ("List[Union[int, float]]", True)

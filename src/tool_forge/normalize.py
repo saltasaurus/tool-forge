@@ -78,3 +78,12 @@ def convert_type(type_str: str) -> JSONSchema:
             return {}
         case _:
             raise NotImplementedError(head)
+
+def strip_modifiers(type_str: str) -> tuple[str, bool]:
+    """Return (clean type expression, is_optional)."""
+
+    parts = _split_top_level(type_str)
+    type_expr = parts[0]
+    modifiers = parts[1:]
+    is_optional = any(m == "optional" or m.startswith("default") for m in modifiers)
+    return type_expr, is_optional
