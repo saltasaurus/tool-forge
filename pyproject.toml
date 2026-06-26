@@ -13,6 +13,7 @@ dependencies = [
     "jsonschema>=4.26.0",
     "numpy>=2.5.0",
     "pydantic>=2.13.4",
+    "wandb>=0.28.0",
 ]
 
 [project.scripts]
@@ -39,6 +40,11 @@ strict = true
 files = ["src", "tests"]                 # what to check
 mypy_path = "src"               # first-party modules
 explicit_package_bases = true   # src/ is base dir, package is `tool_forge`
+
+# Edge ML libs ship no type stubs; don't let --strict choke on them.
+[[tool.mypy.overrides]]
+module = ["datasets.*", "wandb.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py312"
