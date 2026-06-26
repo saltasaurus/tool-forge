@@ -36,8 +36,8 @@ flowchart LR
     XLAM[("xLAM rows<br/>HF, gated")]
     NORM["normalize.py ✅<br/>row → Conversation"]
     VERIFY["verify.py ✅<br/>validate gold calls"]
-    SPLIT["split.py ⬜<br/>hash → train/dev/test"]
-    FORMAT["format.py ⬜<br/>→ chat template"]
+    SPLIT["split.py ✅<br/>seeded → train/dev/test"]
+    FORMAT["format.py ✅<br/>→ chat template"]
     WANDB[("W&B artifact")]
     SCHEMA["schema.py ✅<br/>shared types"]
 
@@ -146,7 +146,7 @@ confirms the harness is scoring real behavior. This is the biggest headroom for 
 - ✅ GPU verified, vLLM serving Qwen3-4B-Instruct-2507 confirmed on WSL2.
 - ✅ Baseline (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
 - ✅ Baseline (multi-turn): Overall **17.50%** (base 25.50% / miss_func 21.50% / miss_param 17.50% / long_context 5.50%).
-- 🔨 Phase 1 (data pipeline): xLAM `normalize` → `Conversation` **done** — full-corpus gold-call validity **98.43%** (1.57% genuine xLAM noise quarantined via `verify`). `split.py` + `format.py` next.
+- 🔨 Phase 1 (data pipeline): xLAM `normalize` → `Conversation` **done** — full-corpus gold-call validity **98.43%** (1.57% genuine xLAM noise quarantined via `verify`). `split.py` (seeded sklearn) + `format.py` (byte-exact Qwen3-FC render) **done**. W&B artifact build next.
 
 ## Setup
 

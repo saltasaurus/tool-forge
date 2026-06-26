@@ -31,3 +31,5 @@ COURSE_LOG.md
 bfcl_results/
 # Keep summary CSVs (bfcl_scores/data_*.csv); ignore the large per-model detail JSONs
 bfcl_scores/*/
+
+data/

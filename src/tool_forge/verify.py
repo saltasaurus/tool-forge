@@ -1,7 +1,7 @@
 import jsonschema
 from pydantic import BaseModel, ConfigDict
 
-from .schema import ToolCall, ToolSpec, VerificationOutcome
+from .schema import Conversation, ToolCall, ToolSpec, VerificationOutcome
 
 
 class VerificationResult(BaseModel):
@@ -38,3 +38,25 @@ def verify(call: ToolCall, registry: dict[str, ToolSpec]) -> VerificationResult:
             result=VerificationOutcome.VALID,
             detail=None
         )
+
+def keep_valid(conversations: list[Conversation]) -> tuple[list[Conversation], int]:
+    """Partition conversations into trainable vs quarantined (Phase-1 use of verify).
+
+    A conversation survives iff EVERY gold call verifies VALID against its own
+    `tools` registry. Returns (survivors, quarantined_count); survivor order is
+    preserved. Pure — no IO.
+
+    `MalformedSpecError` (a tool's own JSON Schema is invalid) propagates by design:
+    that is a pipeline bug to fix before training, not row-level noise to drop.
+    """
+    survivors: list[Conversation] = []
+    quarantined = 0
+    for convo in conversations:
+        if all(
+            verify(call, convo.tools).result is VerificationOutcome.VALID
+            for call in convo.gold_calls
+        ):
+            survivors.append(convo)
+        else:
+            quarantined += 1
+    return survivors, quarantined
