@@ -14,10 +14,15 @@ def load_dataset(path: Path) -> list[dict[str, Any]]:
 
 
 def render_prompt_completion(row: dict[str, Any], tokenizer: PreTrainedTokenizerBase) -> dict[str, str]:
-    # Render to the same prompt/completion boundary verified in the probe, but as strings.
+    """Separate rows into prompt and completion for masking."""
+
     user, assistant = row["messages"]
-    prompt = cast(str, tokenizer.apply_chat_template(
-        [user], tools=row["tools"], add_generation_prompt=True, tokenize=False))
-    full = cast(str, tokenizer.apply_chat_template(
-        [user, assistant], tools=row["tools"], tokenize=False))
-    return {"prompt": prompt, "completion": full[len(prompt):]}
+    prompt = cast(
+        str, tokenizer.apply_chat_template([user], tools=row["tools"], add_generation_prompt=True, tokenize=False)
+    )
+    full = cast(str, tokenizer.apply_chat_template([user, assistant], tools=row["tools"], tokenize=False))
+    # Template closes the turn with eos + newline; drop so trainer appends exactly one EOS
+    completion = full[len(prompt) :]
+    completion = completion.removesuffix("\n").removesuffix(str(tokenizer.eos_token) or "")
+
+    return {"prompt": prompt, "completion": completion}

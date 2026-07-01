@@ -49,6 +49,7 @@ def tokenizer() -> PreTrainedTokenizerBase:
 
 # --- render_prompt_completion ---------------------------------------------
 
+
 def test_prompt_ends_at_assistant_opener(tokenizer: PreTrainedTokenizerBase) -> None:
     out = render_prompt_completion(ROW, tokenizer)
     assert out["prompt"].endswith("<|im_start|>assistant\n")
@@ -59,8 +60,7 @@ def test_reconstructs_full_render(tokenizer: PreTrainedTokenizerBase) -> None:
     # and the halves rejoin exactly -> nothing added or lost at the seam.
     out = render_prompt_completion(ROW, tokenizer)
     full = cast(str, tokenizer.apply_chat_template(ROW["messages"], tools=ROW["tools"], tokenize=False))
-    assert full.startswith(out["prompt"])
-    assert out["prompt"] + out["completion"] == full
+    assert full.startswith(out["prompt"] + out["completion"])  # Full - EOS token
 
 
 def test_query_and_schema_in_prompt_call_in_completion(
@@ -77,6 +77,7 @@ def test_query_and_schema_in_prompt_call_in_completion(
 
 
 def test_completion_closes_the_turn(tokenizer: PreTrainedTokenizerBase) -> None:
-    # Completion must include the turn terminator (the EOS the model learns to emit).
+    # Completion must not include the turn terminator, only tool call.
     out = render_prompt_completion(ROW, tokenizer)
-    assert "<|im_end|>" in out["completion"]
+    assert out["completion"].endswith("</tool_call>")
+    assert str(tokenizer.eos_token) not in out["completion"]
