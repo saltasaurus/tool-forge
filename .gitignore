@@ -18,6 +18,7 @@ dist/
 *.gguf
 wandb/
 data/
+eda/out/
 
 # env
 .env

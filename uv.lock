@@ -897,6 +897,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "numpy" },
     { name = "pydantic" },
+    { name = "pytest" },
     { name = "wandb" },
 ]
 
@@ -915,6 +916,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "numpy", specifier = ">=2.5.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pytest", specifier = ">=9.1.1" },
     { name = "wandb", specifier = ">=0.28.0" },
 ]
 
