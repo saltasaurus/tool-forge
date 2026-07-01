@@ -1,14 +1,16 @@
+from typing import Any
+
 import pytest
 
 from tool_forge.format import format_conversation, to_messages, to_tools
 from tool_forge.schema import Conversation, ToolCall, ToolSpec
 
-WEATHER_PARAMS = {
+WEATHER_PARAMS: dict[str, Any] = {
     "type": "object",
     "properties": {"location": {"type": "string"}},
     "required": ["location"],
 }
-TIME_PARAMS = {
+TIME_PARAMS: dict[str, Any] = {
     "type": "object",
     "properties": {"tz": {"type": "string"}},
     "required": ["tz"],

@@ -1,4 +1,3 @@
-import pytest
 
 from tool_forge.schema import Conversation, ToolCall, ToolSpec
 from tool_forge.verify import keep_valid

@@ -49,12 +49,6 @@ def to_messages(conversation: Conversation) -> list[Message]:
 
     return [user, assistant]
 
-def to_prompt_completion(row):
-    """Separate a row of data into prompt, completion, and tools"""
-    
-    user, assistant = row["messages"]
-    return {"prompt": [user], "completion": [assistant], "tools": row["tools"]}
-
 def format_conversation(conversation: Conversation) -> FormattedExample:
     """Combine into the dict apply_chat_template / SFTTrainer consume."""
     

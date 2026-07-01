@@ -13,7 +13,7 @@ dependencies = [
     "jsonschema>=4.26.0",
     "numpy>=2.5.0",
     "pydantic>=2.13.4",
-    "pytest>=9.1.1",
+    "scikit-learn>=1.9.0",
     "wandb>=0.28.0",
 ]
 
@@ -38,13 +38,13 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src", "tests"]                 # what to check
+files = ["src", "tests"]        # what to check
 mypy_path = "src"               # first-party modules
 explicit_package_bases = true   # src/ is base dir, package is `tool_forge`
 
 # Edge ML libs ship no type stubs; don't let --strict choke on them.
 [[tool.mypy.overrides]]
-module = ["datasets.*", "wandb.*"]
+module = ["datasets.*", "wandb.*", "sklearn.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

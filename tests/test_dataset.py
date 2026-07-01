@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
@@ -5,7 +7,7 @@ from tool_forge import QWEN_4B_INSTRUCT
 from tool_forge.dataset import render_prompt_completion
 
 # Minimal single-turn {messages, tools} row, same shape as data/*.jsonl.
-ROW = {
+ROW: dict[str, Any] = {
     "messages": [
         {"role": "user", "content": "weather in Paris?"},
         {
@@ -56,7 +58,7 @@ def test_reconstructs_full_render(tokenizer: PreTrainedTokenizerBase) -> None:
     # The split is a pure prefix cut: prompt is a true prefix of the full render
     # and the halves rejoin exactly -> nothing added or lost at the seam.
     out = render_prompt_completion(ROW, tokenizer)
-    full = tokenizer.apply_chat_template(ROW["messages"], tools=ROW["tools"], tokenize=False)
+    full = cast(str, tokenizer.apply_chat_template(ROW["messages"], tools=ROW["tools"], tokenize=False))
     assert full.startswith(out["prompt"])
     assert out["prompt"] + out["completion"] == full
 

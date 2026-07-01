@@ -1,10 +1,13 @@
 # tool-forge
 
-Post-train a small instruction-tuned LLM for reliable multi-step **tool use**, evaluate it on the
-public **Berkeley Function Calling Leaderboard (BFCL-V4)**, and serve it behind an OpenAI-compatible
-API with a minimal ReAct loop — **all on a single 12 GB RTX 4070**.
+Teach reliable multi-step **tool use** to a raw pretrained LLM via post-training (SFT → alignment),
+evaluate on the public **Berkeley Function Calling Leaderboard (BFCL-V4)**, and serve behind an
+OpenAI-compatible API with a minimal ReAct loop — **all on a single 12 GB RTX 4070**.
 
-Base model: **Qwen3-4B-Instruct-2507** (non-thinking, function-calling mode). The résumé artifact is a `base → SFT → aligned` BFCL accuracy table.
+Training target: **Qwen3-4B-Base** (pretrained only — no instruction or tool-use tuning). Reference
+ceiling: **Qwen3-4B-Instruct-2507**, the same base after the vendor's own post-training. The result is
+a `base → SFT → aligned` BFCL accuracy table measuring how much of the instruction-tuned ceiling
+post-training recovers on a single GPU.
 
 ## The constraint drives everything
 
@@ -16,9 +19,9 @@ accumulation) exists to fit that budget. Measured: bf16 Qwen3-4B-Instruct-2507 s
 
 ## Pipeline (do not reorder)
 
-1. **Baseline** — serve the *untouched* base, run BFCL-V4, record per-category accuracy *before* any training.
+1. **Anchors** — measure both BFCL-V4 references before training: the **Instruct-2507 ceiling** (the vendor's post-trained model) and the **Qwen3-4B-Base floor** (pretrained only).
 2. **Data** — normalize xLAM/ToolACE to one schema, render to the chat template, validate every gold call through the verifier.
-3. **SFT** — QLoRA, train-on-completions (mask prompt tokens).
+3. **SFT** — QLoRA on the base model, completion-only loss (prompt tokens masked to `-100`).
 4. **Alignment** — DPO (mine near-miss preference pairs) → GRPO (verifiable reward) as a stretch.
 5. **Eval** — BFCL per-category + custom metrics (JSON-validity %, schema-compliance %, hallucinated-tool rate).
 6. **Serve + agent** — merge adapter, serve via vLLM, run a ReAct loop.
@@ -95,20 +98,22 @@ gold calls, the other a chosen/rejected pair.
 
 ## Results
 
-Base model `Qwen/Qwen3-4B-Instruct-2507-FC`, **untouched**, on BFCL-V4.
+Reference ceiling — `Qwen/Qwen3-4B-Instruct-2507-FC`, **untouched**, on BFCL-V4 — the post-trained
+target the base-model curve is measured against. The **Qwen3-4B-Base** floor is not yet measured.
 Repro: greedy (`temperature=0.0`), `bfcl-eval==2025.12.17`, vLLM 0.21.0, bf16, `--max-model-len 12288`.
 
 | Stage | Non-Live AST | Live | Multi-turn | Overall (full V4) |
 |-------|-------------:|-----:|-----------:|------------------:|
-| **base** | **88.31%** | **76.31%** | **17.50%** | _partial¹_ |
-| + SFT     | — | — | — | — |
-| + aligned | — | — | — | — |
+| Base (floor)              | — | — | — | — |
+| + SFT                     | — | — | — | — |
+| + aligned                 | — | — | — | — |
+| *Instruct-2507 (ceiling)* | *88.31%* | *76.31%* | *17.50%* | _partial¹_ |
 
 ¹ BFCL's single "Overall" blends sections not yet run (multi-turn, agentic), so it is **not**
 meaningful until those land — track the section columns, not the headline. Agentic (web search,
 memory) is **excluded by design** (out of training distribution; non-deterministic external services).
 
-<details><summary>Base per-category breakdown (single-turn)</summary>
+<details><summary>Instruct-2507 ceiling — per-category (single-turn)</summary>
 
 | Non-Live (hand-written) | Acc | Live (real prompts) | Acc |
 |---|--:|---|--:|
@@ -120,11 +125,11 @@ memory) is **excluded by design** (out of training distribution; non-determinist
 | parallel_multiple  | 90.00% | live_irrelevance       | 81.22% |
 | irrelevance        | 89.17% | | |
 
-**Reading:** already strong on Python AST (90–95%); weak on **non-Python** (`java` 64%,
-`javascript` 68%) and **live parallel** calls (62–67%) — the headroom SFT/DPO must target.
+**Reading:** the ceiling is strong on Python AST (90–95%) and weak on **non-Python** (`java` 64%,
+`javascript` 68%) and **live parallel** (62–67%) — the accuracy shape the base-model curve is measured against.
 </details>
 
-<details><summary>Base per-category breakdown (multi-turn)</summary>
+<details><summary>Instruct-2507 ceiling — per-category (multi-turn)</summary>
 
 | Multi-turn category | Acc |
 |---|--:|
@@ -136,7 +141,8 @@ memory) is **excluded by design** (out of training distribution; non-determinist
 
 **Reading:** the expected difficulty gradient — `base` highest, `long_context` lowest. Stateful
 multi-step execution is the hardest BFCL section for a 4B; the clean spread (not a flat near-zero)
-confirms the harness is scoring real behavior. This is the biggest headroom for SFT/alignment.
+confirms the harness scores real behavior. Multi-turn lies outside the single-turn training
+distribution used here — reported for context, not a training target.
 </details>
 
 ## Status
@@ -144,24 +150,33 @@ confirms the harness is scoring real behavior. This is the biggest headroom for 
 - ✅ Scaffold: `uv` (Python 3.12.11), `ruff` + `mypy --strict` + `pytest`, all green.
 - ✅ Pure core: `schema.py` (`ToolSpec` / `ToolCall` / `PreferencePair`), `verify.py` (JSON-Schema verifier), full tests.
 - ✅ GPU verified, vLLM serving Qwen3-4B-Instruct-2507 confirmed on WSL2.
-- ✅ Baseline (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
-- ✅ Baseline (multi-turn): Overall **17.50%** (base 25.50% / miss_func 21.50% / miss_param 17.50% / long_context 5.50%).
-- 🔨 Phase 1 (data pipeline): xLAM `normalize` → `Conversation` **done** — full-corpus gold-call validity **98.43%** (1.57% genuine xLAM noise quarantined via `verify`). `split.py` (seeded sklearn) + `format.py` (byte-exact Qwen3-FC render) **done**. W&B artifact build next.
+- ✅ Instruct ceiling (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
+- ✅ Instruct ceiling (multi-turn): Overall **17.50%** (base 25.50% / miss_func 21.50% / miss_param 17.50% / long_context 5.50%).
+- ✅ Phase 1 (data pipeline): `normalize` → `Conversation`, `verify`, `split`, `format`, W&B artifact — **done**. Full-corpus gold-call validity **98.43%** (1.57% xLAM noise quarantined via `verify`).
+- ✅ Environments: primary `.venv` (core + data + QLoRA training + dev tools) and isolated `.venv-serve` (vLLM), both script-built.
+- ✅ QLoRA verified: 4-bit base + LoRA (**0.81%** trainable, ~3.5 GB resident); SFT smoke run passes with token-level completion-masking confirmed, ~5 GB peak.
+- 🔨 Phase 2 (SFT): `models.py` (`ModelSpec` + loaders) and `dataset.render_prompt_completion` (+ tests) **done**; base-model SFT run next.
+- ⬜ Base floor eval · alignment (DPO → GRPO) · serve + ReAct agent.
 
 ## Setup
 
+The primary environment `.venv` holds the core, data pipeline, CUDA training stack, and dev tools. The
+training stack is installed imperatively (not in the lockfile), so **`uv sync` / `uv run` must not be
+used** — they would prune it. Invoke through `.venv/bin/python` or an activated shell.
+
 ```bash
-uv sync                 # core deps + dev tools (ruff, mypy, pytest)
-uv run ruff check . && uv run mypy && uv run pytest
+./scripts/setup_env.sh                          # build .venv (core + data + training + dev tools)
+.venv/bin/python -m pytest                      # run the suite (ruff, mypy also installed)
 ```
 
-## Serving + baseline eval (WSL2 — separate from the training env)
+## Serving + baseline eval (WSL2 — runs in a separate `.venv-serve`)
 
-vLLM is installed imperatively (not in the lockfile) because serving and training have conflicting
-torch pins. The self-healing recipe lives in [`scripts/`](scripts/); run from a clean GPU:
+vLLM lives in its own `.venv-serve`, imperatively installed and isolated from the primary `.venv`
+because it is a WSL-fragile, out-of-lockfile install whose repair must not clobber training. Build it
+once, then serve + eval:
 
 ```bash
-uv pip install "vllm==0.21.0" --torch-backend auto
+./scripts/setup_serve_env.sh                 # build .venv-serve (vllm==0.21.0)
 ./scripts/serve_baseline.sh                  # terminal A: serve, wait for "Application startup complete"
 ./scripts/run_baseline_auto.sh single_turn   # terminal B: generate (resume loop survives WSL hangs)
 ./scripts/eval_bfcl.sh single_turn           # score → bfcl_scores/ (CPU-only; reads sealed gold)
@@ -183,10 +198,10 @@ Hard-won WSL2 pins, all encoded in `serve_baseline.sh`:
 
 Eval is pinned to `bfcl-eval==2025.12.17`. `--skip-server-setup` points BFCL at the running server;
 greedy decoding (`--temperature 0.0`) for reproducibility. Result/score dirs use **absolute** paths
-because BFCL resolves relative `--result-dir`/`--score-dir` against its *package* root, not your CWD.
+because BFCL resolves relative `--result-dir`/`--score-dir` against its *package* root, not the invocation CWD.
 **Agentic categories (web search, memory) are excluded** — they need live external services.
 
 ## Stack
 
-Python 3.12 · `uv` · `transformers` + `trl` + `peft` + `bitsandbytes` (Unsloth backend) · `vllm` ·
+Python 3.12 · `uv` · `transformers` + `trl` + `peft` + `bitsandbytes` · `vllm` ·
 `bfcl-eval` · `pydantic` v2 · `jsonschema`. Quality gates: `ruff`, `mypy --strict`, `pytest`.

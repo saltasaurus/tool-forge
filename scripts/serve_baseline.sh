@@ -15,7 +15,7 @@ MODEL="Qwen/Qwen3-4B-Instruct-2507"
 # restart LD_LIBRARY_PATH is empty, so vllm's _C can't find libcudart.so.13.
 # Point the linker at every bundled nvidia/*/lib dir (resolved by soname, so the
 # cu12/cu13 copies don't clash). This must run before `vllm` is invoked.
-VENV="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.venv"
+VENV="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.venv-serve"
 export LD_LIBRARY_PATH="$(echo "$VENV"/lib/python3.12/site-packages/nvidia/*/lib | tr ' ' ':'):${LD_LIBRARY_PATH:-}"
 
 export VLLM_USE_FLASHINFER_SAMPLER=0
