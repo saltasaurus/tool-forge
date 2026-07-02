@@ -44,7 +44,7 @@ explicit_package_bases = true   # src/ is base dir, package is `tool_forge`
 
 # Edge ML libs ship no type stubs; don't let --strict choke on them.
 [[tool.mypy.overrides]]
-module = ["datasets.*", "wandb.*", "sklearn.*"]
+module = ["datasets.*", "wandb.*", "sklearn.*", "tqdm.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

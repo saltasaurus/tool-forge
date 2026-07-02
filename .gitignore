@@ -19,6 +19,7 @@ dist/
 wandb/
 data/
 eda/out/
+out/
 
 # env
 .env

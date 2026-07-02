@@ -11,8 +11,14 @@ PY="$VENV/bin/python"
 
 uv venv "$VENV" --python 3.12.11
 
-# vLLM pulls its own torch/transformers; --torch-backend auto picks the cu128 wheel.
-uv pip install --python "$PY" "vllm==0.21.0" --torch-backend auto
+# vLLM 0.21.0 ships a CUDA-13 wheel: its _C extension links libcudart.so.13 and a
+# cu13-built libtorch, so torch must also be cu13. --torch-backend auto resolves a
+# cu128 torch that cannot load it, and uv 0.8.0 exposes no cu130 backend; pull the
+# matching cu13 torch (torch 2.11.0+cu130, nvidia-cuda-runtime 13.x) from PyTorch's
+# cu130 index instead. unsafe-best-match lets uv prefer the +cu130 build over PyPI.
+uv pip install --python "$PY" "vllm==0.21.0" \
+  --extra-index-url https://download.pytorch.org/whl/cu130 \
+  --index-strategy unsafe-best-match
 
 "$PY" -c "import vllm; print('vllm', vllm.__version__)"
 echo "OK: .venv-serve ready. Serve with: ./scripts/serve_baseline.sh"
