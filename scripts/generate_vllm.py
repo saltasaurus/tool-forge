@@ -9,7 +9,7 @@ scores the dump in `.venv` with the shared, pure scorer.
 vLLM's continuous batching + per-sequence `stop` is the speedup: finished rows
 free their slot immediately instead of waiting on the batch's slowest straggler.
 
-    ./scripts/generate_vllm.sh --model base --out out/gen-base.jsonl
+    ./scripts/generate_vllm.sh --model base --out runs/base/eval/dev.gen.jsonl
 """
 
 import argparse

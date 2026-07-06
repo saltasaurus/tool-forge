@@ -5,8 +5,8 @@ Produces the base **floor** number (untouched Qwen3-4B-Base) and, with
 every checkpoint. Edge module (loads the training stack); not re-exported from
 the package `__init__`.
 
-    python -m tool_forge.eval --model base --limit 500              # floor
-    python -m tool_forge.eval --model base --adapter out/sft-base   # an SFT checkpoint
+    python -m tool_forge.eval --model base --limit 500                    # floor
+    python -m tool_forge.eval --model base --adapter runs/sft-base/train  # an SFT checkpoint
 
 Metrics form a lenient->strict ladder (means over rows). The content rungs read
 calls wrapper-agnostically (a raw base model emits bare JSON, never the tags);
@@ -235,8 +235,13 @@ def main() -> None:
         default=None,
         help="score a generation dump (scripts/generate_vllm.py) instead of generating here",
     )
-    p.add_argument("--out", type=Path, default=None, help="write metrics JSON here")
+    p.add_argument("--out", type=Path, default=None, help="metrics JSON; default: beside the --completions dump")
     args = p.parse_args()
+
+    if args.out is None and args.completions is not None:
+        # Land metrics next to the gen dump on the shared convention: dev.gen.jsonl -> dev.metrics.json.
+        stem = args.completions.name.removesuffix(".jsonl").removesuffix(".gen")
+        args.out = args.completions.with_name(stem + ".metrics.json")
 
     if args.completions is not None:
         _, metrics = score_completions(args.data, args.completions)

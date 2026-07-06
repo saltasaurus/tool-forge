@@ -19,7 +19,14 @@ dist/
 wandb/
 data/
 eda/out/
-out/
+
+# One dir per run (runs/<run>/): ignore the heavy, regenerable artifacts —
+# checkpoints, gen dumps, metrics, BFCL result/detail JSONs. The small BFCL
+# summary CSVs (runs/<run>/bfcl/scores/data_*.csv) stay tracked.
+runs/*/train/
+runs/*/eval/
+runs/*/bfcl/results/
+runs/*/bfcl/scores/*/
 
 # env
 .env
@@ -28,10 +35,3 @@ out/
 # Markdown files used for goal setting
 CLAUDE.md
 COURSE_LOG.md
-
-# Testing results
-bfcl_results/
-# Keep summary CSVs (bfcl_scores/data_*.csv); ignore the large per-model detail JSONs
-bfcl_scores/*/
-
-data/
