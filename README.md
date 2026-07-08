@@ -1,207 +1,193 @@
-# tool-forge
+# Tool Forge
 
-Teach reliable multi-step **tool use** to a raw pretrained LLM via post-training (SFT → alignment),
-evaluate on the public **Berkeley Function Calling Leaderboard (BFCL-V4)**, and serve behind an
-OpenAI-compatible API with a minimal ReAct loop — **all on a single 12 GB RTX 4070**.
+**Fine-tuning a base language model to reliably call tools — a training pipeline, an eval harness, and a portfolio project.**
 
-Training target: **Qwen3-4B-Base** (pretrained only — no instruction or tool-use tuning). Reference
-ceiling: **Qwen3-4B-Instruct-2507**, the same base after the vendor's own post-training. The result is
-a `base → SFT → aligned` BFCL accuracy table measuring how much of the instruction-tuned ceiling
-post-training recovers on a single GPU.
+[![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![vLLM](https://img.shields.io/badge/inference-vLLM-6E56CF)](https://github.com/vllm-project/vllm)
+[![Weights & Biases](https://img.shields.io/badge/tracked%20with-W%26B-FFBE00?logo=weightsandbiases&logoColor=black)](https://wandb.ai/)
+[![Base model](https://img.shields.io/badge/base-Qwen3--4B--Base-orange)](https://huggingface.co/Qwen/Qwen3-4B-Base)
+[![Eval](https://img.shields.io/badge/eval-BFCL-lightgrey)](https://github.com/ShishirPatil/gorilla)
 
-## The constraint drives everything
+> Add a demo GIF/screenshot here: a tool-call request going in, the model's structured output, the tool executing, and the final answer coming back.
 
-One consumer GPU. On a desktop-driving 4070, ~2 GB goes to the display, leaving **~10 GB usable**.
-Every choice (QLoRA 4-bit, adapter-disabled reference model, short context, batch-size-1 + grad
-accumulation) exists to fit that budget. Measured: bf16 Qwen3-4B-Instruct-2507 serving uses
-**~7.64 GiB weights + ~2.5 GiB KV cache** (18.5k tokens) at `gpu_memory_utilization=0.90`,
-`--max-model-len 12288`.
+## Table of contents
 
-## Pipeline (do not reorder)
+- [Overview](#overview)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Quickstart](#quickstart)
+- [Usage](#usage)
+- [Fine-tuning](#fine-tuning)
+- [Evaluation](#evaluation)
+- [Appendix: experiment log](#appendix-experiment-log)
+- [About](#about)
 
-1. **Anchors** — measure both BFCL-V4 references before training: the **Instruct-2507 ceiling** (the vendor's post-trained model) and the **Qwen3-4B-Base floor** (pretrained only).
-2. **Data** — normalize xLAM/ToolACE to one schema, render to the chat template, validate every gold call through the verifier.
-3. **SFT** — QLoRA on the base model, completion-only loss (prompt tokens masked to `-100`).
-4. **Alignment** — DPO (mine near-miss preference pairs) → GRPO (verifiable reward) as a stretch.
-5. **Eval** — BFCL per-category + custom metrics (JSON-validity %, schema-compliance %, hallucinated-tool rate).
-6. **Serve + agent** — merge adapter, serve via vLLM, run a ReAct loop.
+## Overview
 
-## Architecture
+Tool calling teaches a model to recognize when it should hand off work to another program — a search API, a calculator, a database query — instead of trying to answer from its own weights. Given a set of tool definitions, the model responds with a structured, executable call rather than free text, and the caller gets a deterministic result back.
 
-The spine is `schema.py` — every module speaks its types; nothing speaks "xLAM-ese" past
-`normalize`. The pure core (`schema` / `verify` / `normalize` / `split` / `format`) is I/O-free and
-unit-tested; the edge (HF load, W&B, vLLM, trainers) is where side effects live.
+This project fine-tunes **[Qwen3-4B-Base](https://huggingface.co/Qwen/Qwen3-4B-Base)** — a raw, non-instruction-tuned checkpoint — to perform tool calling on par with purpose-built instruct models like **[Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)**, on a single 12 GB GPU (RTX 4070).
 
-**Data flow** (✅ built · 🔨 in progress · ⬜ planned):
+Two goals: build hands-on fine-tuning skill end-to-end (data → training → eval), and produce a concrete, inspectable artifact — this repo — for interviewers evaluating that skill.
+
+## Features
+
+- Supervised fine-tuning pipeline from a **base** (non-chat) checkpoint to reliable structured tool calls, using **QLoRA** (4-bit NF4 base + LoRA adapters) to fit a 4B model on 12 GB
+- Custom eval protocol that separates *"did it even emit a parseable tool call"* from *"was the call correct"*
+- Final scoring against [BFCL](https://github.com/ShishirPatil/gorilla) (Berkeley Function-Calling Leaderboard) for an external, comparable number
+- Schema validation (`jsonschema`) over a pure, I/O-free core (`schema` / `verify` / `normalize` / `split` / `format`) with a `pytest` suite
+- Local inference via `vLLM` (in an isolated environment) for fast batched eval runs
+- Checkpoint-over-checkpoint results tracked in Weights & Biases and logged in this README's appendix
+
+## How it works
 
 ```mermaid
 flowchart LR
-    XLAM[("xLAM rows<br/>HF, gated")]
-    NORM["normalize.py ✅<br/>row → Conversation"]
-    VERIFY["verify.py ✅<br/>validate gold calls"]
-    SPLIT["split.py ✅<br/>seeded → train/dev/test"]
-    FORMAT["format.py ✅<br/>→ chat template"]
-    WANDB[("W&B artifact")]
-    SCHEMA["schema.py ✅<br/>shared types"]
-
-    XLAM --> NORM --> VERIFY --> SPLIT --> FORMAT --> WANDB
-    SCHEMA -. types .-> NORM
-    SCHEMA -. types .-> VERIFY
-    SCHEMA -. types .-> SPLIT
-    SCHEMA -. types .-> FORMAT
-    VERIFY -. quarantine counts<br/>converter feedback .-> NORM
+    D[xLAM tool-calling dataset] --> SFT[QLoRA supervised fine-tuning]
+    B[Qwen3-4B-Base] --> SFT
+    SFT --> CKPT[Fine-tuned adapter]
+    CKPT --> MERGE[Merge into base]
+    MERGE --> SERVE[vLLM serving]
+    SERVE --> EVAL[Eval harness]
+    I[Qwen3-4B-Instruct-2507] -. baseline .-> EVAL
+    EVAL --> BFCL[BFCL leaderboard]
+    EVAL --> RESULTS[Results log]
 ```
 
-`verify.py` is reused three times — Phase 1 (filter gold), Phase 3 (grade generated calls, *strict*),
-Phase 5 (guard agent calls) — which is why it stays pure and dependency-free.
+Training data comes from the **[xLAM](https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k)** tool-calling dataset, normalized to one schema and rendered to the Qwen chat template. The base model is fine-tuned on it directly — no instruction-tuning step in between — and every checkpoint is evaluated against the same protocol used on the untouched base model and on the official instruct release, so gains are attributable to the fine-tune rather than the starting checkpoint.
 
-**Core types** (`schema.py`):
-
-```mermaid
-classDiagram
-    class ToolSpec {
-        +str name
-        +str description
-        +dict parameters
-    }
-    class ToolCall {
-        +str name
-        +dict arguments
-        +str id
-    }
-    class Conversation {
-        +int id
-        +str query
-        +dict~str,ToolSpec~ tools
-        +tuple~ToolCall~ gold_calls
-    }
-    class PreferencePair {
-        +str query
-        +dict~str,ToolSpec~ tools
-        +ToolCall chosen
-        +ToolCall rejected
-        +VerificationOutcome rejection_reason
-    }
-    class VerificationResult {
-        +VerificationOutcome result
-        +str detail
-    }
-    Conversation o-- ToolSpec : tools
-    Conversation o-- ToolCall : gold_calls
-    PreferencePair o-- ToolSpec : tools
-    PreferencePair o-- ToolCall : chosen / rejected
-    VerificationResult ..> VerificationOutcome
-```
-
-`Conversation` (SFT) and `PreferencePair` (DPO) are siblings — both carry `query` + `tools`; one holds
-gold calls, the other a chosen/rejected pair.
-
-## Results
-
-Reference ceiling — `Qwen/Qwen3-4B-Instruct-2507-FC`, **untouched**, on BFCL-V4 — the post-trained
-target the base-model curve is measured against. The **Qwen3-4B-Base** floor is not yet measured.
-Repro: greedy (`temperature=0.0`), `bfcl-eval==2025.12.17`, vLLM 0.21.0, bf16, `--max-model-len 12288`.
-
-| Stage | Non-Live AST | Live | Multi-turn | Overall (full V4) |
-|-------|-------------:|-----:|-----------:|------------------:|
-| Base (floor)              | — | — | — | — |
-| + SFT                     | — | — | — | — |
-| + aligned                 | — | — | — | — |
-| *Instruct-2507 (ceiling)* | *88.31%* | *76.31%* | *17.50%* | _partial¹_ |
-
-¹ BFCL's single "Overall" blends sections not yet run (multi-turn, agentic), so it is **not**
-meaningful until those land — track the section columns, not the headline. Agentic (web search,
-memory) is **excluded by design** (out of training distribution; non-deterministic external services).
-
-<details><summary>Instruct-2507 ceiling — per-category (single-turn)</summary>
-
-| Non-Live (hand-written) | Acc | Live (real prompts) | Acc |
-|---|--:|---|--:|
-| simple_python      | 95.25% | live_simple            | 78.68% |
-| simple_java        | 64.00% | live_multiple          | 76.16% |
-| simple_javascript  | 68.00% | live_parallel          | 62.50% |
-| multiple           | 94.50% | live_parallel_multiple | 66.67% |
-| parallel           | 93.00% | live_relevance         | 87.50% |
-| parallel_multiple  | 90.00% | live_irrelevance       | 81.22% |
-| irrelevance        | 89.17% | | |
-
-**Reading:** the ceiling is strong on Python AST (90–95%) and weak on **non-Python** (`java` 64%,
-`javascript` 68%) and **live parallel** (62–67%) — the accuracy shape the base-model curve is measured against.
-</details>
-
-<details><summary>Instruct-2507 ceiling — per-category (multi-turn)</summary>
-
-| Multi-turn category | Acc |
-|---|--:|
-| base          | 25.50% |
-| miss_func     | 21.50% |
-| miss_param    | 17.50% |
-| long_context  |  5.50% |
-| **overall**   | **17.50%** |
-
-**Reading:** the expected difficulty gradient — `base` highest, `long_context` lowest. Stateful
-multi-step execution is the hardest BFCL section for a 4B; the clean spread (not a flat near-zero)
-confirms the harness scores real behavior. Multi-turn lies outside the single-turn training
-distribution used here — reported for context, not a training target.
-</details>
-
-## Status
-
-- ✅ Scaffold: `uv` (Python 3.12.11), `ruff` + `mypy --strict` + `pytest`, all green.
-- ✅ Pure core: `schema.py` (`ToolSpec` / `ToolCall` / `PreferencePair`), `verify.py` (JSON-Schema verifier), full tests.
-- ✅ GPU verified, vLLM serving Qwen3-4B-Instruct-2507 confirmed on WSL2.
-- ✅ Instruct ceiling (single-turn): Non-Live AST **88.31%**, Live **76.31%** (`Qwen3-4B-Instruct-2507-FC`, greedy).
-- ✅ Instruct ceiling (multi-turn): Overall **17.50%** (base 25.50% / miss_func 21.50% / miss_param 17.50% / long_context 5.50%).
-- ✅ Phase 1 (data pipeline): `normalize` → `Conversation`, `verify`, `split`, `format`, W&B artifact — **done**. Full-corpus gold-call validity **98.43%** (1.57% xLAM noise quarantined via `verify`).
-- ✅ Environments: primary `.venv` (core + data + QLoRA training + dev tools) and isolated `.venv-serve` (vLLM), both script-built.
-- ✅ QLoRA verified: 4-bit base + LoRA (**0.81%** trainable, ~3.5 GB resident); SFT smoke run passes with token-level completion-masking confirmed, ~5 GB peak.
-- 🔨 Phase 2 (SFT): `models.py` (`ModelSpec` + loaders) and `dataset.render_prompt_completion` (+ tests) **done**; base-model SFT run next.
-- ⬜ Base floor eval · alignment (DPO → GRPO) · serve + ReAct agent.
-
-## Setup
-
-The primary environment `.venv` holds the core, data pipeline, CUDA training stack, and dev tools. The
-training stack is installed imperatively (not in the lockfile), so **`uv sync` / `uv run` must not be
-used** — they would prune it. Invoke through `.venv/bin/python` or an activated shell.
+## Quickstart
 
 ```bash
-./scripts/setup_env.sh                          # build .venv (core + data + training + dev tools)
-.venv/bin/python -m pytest                      # run the suite (ruff, mypy also installed)
+git clone https://github.com/saltasaurus/tool-forge.git
+cd tool-forge
+./scripts/setup_env.sh         # training/eval env (.venv): torch, transformers, trl, peft, bitsandbytes
+./scripts/setup_serve_env.sh   # isolated vLLM env (.venv-serve) for fast batched generation
 ```
 
-## Serving + baseline eval (WSL2 — runs in a separate `.venv-serve`)
-
-vLLM lives in its own `.venv-serve`, imperatively installed and isolated from the primary `.venv`
-because it is a WSL-fragile, out-of-lockfile install whose repair must not clobber training. Build it
-once, then serve + eval:
+The fast eval of a checkpoint is a three-step pipeline — merge the adapter, generate with vLLM, then score with the shared pure scorer:
 
 ```bash
-./scripts/setup_serve_env.sh                 # build .venv-serve (vllm==0.21.0)
-./scripts/serve_baseline.sh                  # terminal A: serve, wait for "Application startup complete"
-./scripts/run_baseline_auto.sh single_turn   # terminal B: generate (resume loop survives WSL hangs)
-./scripts/eval_bfcl.sh single_turn           # score → bfcl_scores/ (CPU-only; reads sealed gold)
+# 1. fold the LoRA adapter into a standalone bf16 model
+python -m tool_forge.merge --adapter runs/sft-base-v3/train --out runs/sft-base-v3/merged
+
+# 2. generate tool-call completions over the dev split (vLLM, isolated env)
+./scripts/generate_vllm.sh --model runs/sft-base-v3/merged --out runs/sft-base-v3/eval/dev.gen.jsonl
+
+# 3. score the dump against the custom protocol (CPU, no GPU)
+python -m tool_forge.eval --data data/dev.jsonl --completions runs/sft-base-v3/eval/dev.gen.jsonl
 ```
 
-Hard-won WSL2 pins, all encoded in `serve_baseline.sh`:
+## Usage
 
-- **`vllm==0.21.0`** — 0.23 + CUDA 13 crashes on WSL2 (UVA unavailable).
-- **`VLLM_USE_FLASHINFER_SAMPLER=0` and no `--kv-cache-dtype fp8`** — anything that makes vLLM
-  JIT-compile a FlashInfer kernel needs `nvcc`, which isn't installed. fp8 forces FlashInfer; bf16
-  KV stays on prebuilt `FLASH_ATTN`.
-- **`--max-model-len 12288`** (not 4096) — BFCL reserves up to 4096 output tokens against the model's
-  *native* 262K context, so the served window must hold `prompt + 4096`; 4096 overflows real prompts.
-- **`--gpu-memory-utilization 0.90 --enforce-eager`** — fits bf16 weights + KV in ~10 GB usable.
-- **`LD_LIBRARY_PATH` → venv `nvidia/*/lib`** — CUDA libs ship as pip wheels in the venv; after a
-  WSL/shell restart the linker can't find `libcudart.so.13` until this is re-exported.
-- **Reap orphans after a crash** — `vllm serve` spawns an `EngineCore` child that Ctrl-C does *not*
-  kill (it keeps holding VRAM): `pkill -9 -f 'EngineCore'` (also `bin/vllm`, `bin/bfcl`).
+Tools are described as OpenAI/Anthropic-style function schemas and passed to the tokenizer's chat template alongside the user turn:
 
-Eval is pinned to `bfcl-eval==2025.12.17`. `--skip-server-setup` points BFCL at the running server;
-greedy decoding (`--temperature 0.0`) for reproducibility. Result/score dirs use **absolute** paths
-because BFCL resolves relative `--result-dir`/`--score-dir` against its *package* root, not the invocation CWD.
-**Agentic categories (web search, memory) are excluded** — they need live external services.
+```python
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get current weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+        },
+    }
+]
 
-## Stack
+prompt = tokenizer.apply_chat_template(
+    [{"role": "user", "content": "What's the weather in Austin?"}],
+    tools=tools, add_generation_prompt=True, tokenize=False,
+)
+```
 
-Python 3.12 · `uv` · `transformers` + `trl` + `peft` + `bitsandbytes` · `vllm` ·
-`bfcl-eval` · `pydantic` v2 · `jsonschema`. Quality gates: `ruff`, `mypy --strict`, `pytest`.
+The model is trained to emit the Qwen tool-call protocol — the call wrapped in `<tool_call>` tags:
+
+```text
+<tool_call>
+{"name": "get_weather", "arguments": {"city": "Austin"}}
+</tool_call>
+```
+
+The eval harness checks this output at several levels — see [Evaluation](#evaluation).
+
+## Fine-tuning
+
+- **Base checkpoint:** [`Qwen/Qwen3-4B-Base`](https://huggingface.co/Qwen/Qwen3-4B-Base)
+- **Comparison target:** [`Qwen/Qwen3-4B-Instruct-2507`](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)
+- **Dataset:** [xLAM](https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k) tool-calling data
+- **Method:** QLoRA — 4-bit NF4 quantized base + LoRA adapters (`r=16`), completion-only loss (prompt tokens masked). The LoRA targets attention/MLP projections **plus `lm_head` and `embed_tokens`** — the base never trained the tool-call special tokens, so the tied embedding/output head must be adapted for the model to emit the `<tool_call>` wrapper at all.
+- **Stack:** [TRL](https://github.com/huggingface/trl) `SFTTrainer` + [PEFT](https://github.com/huggingface/peft) + [bitsandbytes](https://github.com/bitsandbytes-foundation/bitsandbytes) for training; `transformers` + `datasets` for models and data; `vLLM` for eval-time serving; Weights & Biases for run tracking
+- **Correctness checks:** every generated call is validated against its JSON schema (`jsonschema`) before being scored; `pytest` covers the pure parsing/verification core
+
+Train from the base checkpoint:
+
+```bash
+python -m tool_forge.train --model base --out runs/sft-base-v3/train --wandb
+```
+
+Runs are organized one directory per experiment under `runs/<run>/`: `train/` holds the trainer output (checkpoints, adapter), `eval/` holds generation dumps and metrics, `bfcl/` holds BFCL results — so a run is fully self-contained.
+
+## Evaluation
+
+Results below compare the untouched base checkpoint ("base floor") against a fine-tuned checkpoint. Each metric isolates a different failure mode:
+
+| Metric | What it checks |
+|---|---|
+| `emits_json` | Output is a parseable tool call at all |
+| `schema_valid` | Every call validates against its tool's JSON schema |
+| `tool_name` | Correct tool name(s) |
+| `name_and_args` | Correct tool name **and** correct arguments |
+| `protocol` | Output emits the expected `<tool_call>` wrapper |
+| `strict` | Wrapper present **and** the call inside it is correct |
+| `hallucinated` | Model calls a tool that wasn't offered (diagnostic) |
+
+| Metric | Base floor | v3-ckpt400 | |
+|---|---|---|---|
+| `protocol` (emits wrapper) | 0.00% | 73.41% | ✅ the fix |
+| `strict` (wrapped + correct) | 0.00% | 47.61% | ✅ the real accuracy |
+| `name_and_args` | 67.08% | 47.61% | ⚠️ down |
+| `tool_name` | 87.31% | 61.03% | ⚠️ down |
+| `emits_json` | 97.23% | 73.09% | ⚠️ down |
+| `schema_valid` | 93.80% | 69.21% | ⚠️ down |
+| `hallucinated` | 0.10% | 3.38% | ⚠️ up |
+
+**Reading this:** the base model almost never emits a usable tool-call wrapper (`protocol` at 0%), so its higher scores on `name_and_args` / `tool_name` measure correctness only *within the rare bare-JSON calls it happens to produce* — not overall reliability. `v3-ckpt400` learns the wrapper (attempted on 100% of prompts), which is the harder and more important failure mode. But it is an early checkpoint (400 steps ≈ 0.14 epoch): on ~34% of prompts it falls into a repetition loop instead of producing one call and stopping, which drags every content metric down and lifts `hallucinated`. That degeneration tail is **undertraining**, not a precision ceiling, and is the current focus of iteration.
+
+**BFCL score:** pending — final run not yet complete. Baseline anchors are measured (Instruct-2507 at 30.23% overall).
+
+Full checkpoint-by-checkpoint history: [Appendix](#appendix-experiment-log).
+
+## Appendix: experiment log
+
+Running log of fixes and results per checkpoint, in order.
+
+### v3 — checkpoint 400 (0.14 epoch)
+
+First checkpoint that emits the `<tool_call>` protocol. The fix: earlier runs used a LoRA on `all-linear`, which excludes the tied `embed_tokens`/`lm_head`; because the pretrained-only base never learned the tool-call special tokens (their embedding rows sat at initialization), the frozen head could not emit them and `protocol` was pinned at 0%. Adding `lm_head`/`embed_tokens` to the LoRA unblocked it.
+
+| Metric | Base floor | v3-ckpt400 | |
+|---|---|---|---|
+| `protocol` (emits wrapper) | 0.00% | 73.41% | ✅ the fix |
+| `strict` (wrapped + correct) | 0.00% | 47.61% | ✅ the real accuracy |
+| `name_and_args` | 67.08% | 47.61% | ⚠️ down |
+| `tool_name` | 87.31% | 61.03% | ⚠️ down |
+| `emits_json` | 97.23% | 73.09% | ⚠️ down |
+| `schema_valid` | 93.80% | 69.21% | ⚠️ down |
+| `hallucinated` | 0.10% | 3.38% | ⚠️ up |
+
+Diagnosis: ~34% of generations degenerate into repetition loops (never emit `</tool_call>` or stop), which accounts for the depressed content metrics. Next lever is more training from this checkpoint.
+
+_(Additional checkpoints will be appended here as training progresses.)_
+
+## About
+
+Built by [**saltasaurus**](https://github.com/saltasaurus) to learn model fine-tuning end-to-end and as a portfolio piece for ML/infra interviews.
+
+- Repo: [github.com/saltasaurus/tool-forge](https://github.com/saltasaurus/tool-forge)
+- Base model: [Qwen3-4B-Base](https://huggingface.co/Qwen/Qwen3-4B-Base)
+- Comparison model: [Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)
