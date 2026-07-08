@@ -27,8 +27,9 @@ runs/*/train/
 runs/*/eval/
 runs/*/bfcl/results/
 runs/*/bfcl/scores/*/
-runs/*/merged/       # merged bf16 model — regenerable from the adapter via tool_forge.merge
-runs/*/*.log         # run logs (train/generate/merge stdout)
+# merged bf16 model (regenerable from the adapter via tool_forge.merge) and run logs
+runs/*/merged/
+runs/*/*.log
 
 # env
 .env
