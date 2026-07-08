@@ -46,7 +46,7 @@ def main() -> None:
     p.add_argument("--adapter", type=Path, default=None, help="LoRA adapter dir (SFT checkpoint)")
     p.add_argument("--data", type=Path, default=Path("data/dev.jsonl"))
     p.add_argument("--out", type=Path, required=True, help="JSONL dump of {i, completion}")
-    p.add_argument("--max-new-tokens", type=int, default=256)
+    p.add_argument("--max-new-tokens", type=int, default=512)  # wrapped multi-call rows exceed 256 and truncate
     p.add_argument("--gpu-util", type=float, default=0.90)  # matches serve_baseline.sh
     p.add_argument("--max-model-len", type=int, default=4096)  # dev prompts are short; leaves KV for batching
     args = p.parse_args()
