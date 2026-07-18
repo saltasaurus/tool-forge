@@ -15,6 +15,7 @@ from trl.trainer.sft_trainer import SFTTrainer
 
 from tool_forge import models
 from tool_forge.dataset import load_dataset, render_prompt_completion
+from tool_forge.gen_probe import GenerationProbeCallback
 
 # target_modules is all-linear's attention/MLP projections PLUS the tied embed/head.
 # Qwen3-4B-Base is pretraining-only, so the tool-call special tokens sit at init in the
@@ -118,6 +119,10 @@ def train(
     trainer = SFTTrainer(
         model=model, args=config, train_dataset=dataset, eval_dataset=eval_dataset, processing_class=tokenizer
     )
+    # Free-generation probe: teacher-forced eval_loss can't see degeneration (repetition
+    # loops), so generate on a fixed 32-prompt dev sample each eval and log gen/hit_cap_rate.
+    probe_prompts = [eval_dataset[i]["prompt"] for i in range(min(32, len(eval_dataset)))]
+    trainer.add_callback(GenerationProbeCallback(probe_prompts, tokenizer))
     # resume=True auto-finds the latest checkpoint in `out` and restores optimizer,
     # scheduler, RNG and step count — the run continues, it does not restart.
     trainer.train(resume_from_checkpoint=resume or None)
