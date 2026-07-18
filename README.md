@@ -148,15 +148,19 @@ Results below compare the untouched base checkpoint ("base floor") against a fin
 
 | Metric | Base floor | v3-ckpt400 | |
 |---|---|---|---|
-| `protocol` (emits wrapper) | 0.00% | 73.41% | ✅ the fix |
-| `strict` (wrapped + correct) | 0.00% | 47.61% | ✅ the real accuracy |
-| `name_and_args` | 67.08% | 47.61% | ⚠️ down |
-| `tool_name` | 87.31% | 61.03% | ⚠️ down |
-| `emits_json` | 97.23% | 73.09% | ⚠️ down |
-| `schema_valid` | 93.80% | 69.21% | ⚠️ down |
-| `hallucinated` | 0.10% | 3.38% | ⚠️ up |
+| `protocol` (emits wrapper) | 0.00% | 100.00% | ✅ the fix |
+| `strict` (wrapped + correct) | 0.00% | 83.67% | ✅ the real accuracy |
+| `name_and_args` | 67.08% | 83.67% | ✅ up |
+| `tool_name` | 87.31% | 99.67% | ✅ up |
+| `emits_json` | 97.23% | 100.00% | ✅ up |
+| `schema_valid` | 93.80% | 100.00% | ✅ up |
+| `hallucinated` | 0.10% | 0.00% | ✅ down |
 
-**Reading this:** the base model almost never emits a usable tool-call wrapper (`protocol` at 0%), so its higher scores on `name_and_args` / `tool_name` measure correctness only *within the rare bare-JSON calls it happens to produce* — not overall reliability. `v3-ckpt400` learns the wrapper (attempted on 100% of prompts), which is the harder and more important failure mode. But it is an early checkpoint (400 steps ≈ 0.14 epoch): on ~34% of prompts it falls into a repetition loop instead of producing one call and stopping, which drags every content metric down and lifts `hallucinated`. That degeneration tail is **undertraining**, not a precision ceiling, and is the current focus of iteration.
+_v3-ckpt400 is the faithful un-merged 4-bit+adapter path on a 300-row dev subset (base floor is full-dev); a full-dev faithful run will lock the final numbers._
+
+**Reading this:** the base model almost never emits a usable tool-call wrapper (`protocol` at 0%), so its content scores measure correctness only *within the rare bare-JSON calls it happens to produce*. `v3-ckpt400` learns the wrapper (100%) **and** beats the base floor on every content metric — `strict` goes 0 → 83.7%.
+
+A caution worth recording: an earlier eval served the model by **merging** the adapter into a bf16 base and reported far lower numbers (`strict` 47.6%, with ~34% of outputs degenerating into repetition). That was a **QLoRA merge artifact** — the adapter was trained against the 4-bit base, so folding it into bf16 gives it the wrong weights — not a property of the model. Evaluated on the base it was trained against (un-merged 4-bit), there is no degeneration. See the [experiment log](docs/experiment-log.md) for the full trace; serving the adapter faithfully at vLLM speed is the current open problem.
 
 **BFCL score:** pending — final run not yet complete. Baseline anchors are measured (Instruct-2507 at 30.23% overall).
 
@@ -170,17 +174,25 @@ Running log of fixes and results per checkpoint, in order.
 
 First checkpoint that emits the `<tool_call>` protocol. The fix: earlier runs used a LoRA on `all-linear`, which excludes the tied `embed_tokens`/`lm_head`; because the pretrained-only base never learned the tool-call special tokens (their embedding rows sat at initialization), the frozen head could not emit them and `protocol` was pinned at 0%. Adding `lm_head`/`embed_tokens` to the LoRA unblocked it.
 
+Evaluated on the faithful un-merged 4-bit+adapter path (300-row dev subset):
+
 | Metric | Base floor | v3-ckpt400 | |
 |---|---|---|---|
-| `protocol` (emits wrapper) | 0.00% | 73.41% | ✅ the fix |
-| `strict` (wrapped + correct) | 0.00% | 47.61% | ✅ the real accuracy |
-| `name_and_args` | 67.08% | 47.61% | ⚠️ down |
-| `tool_name` | 87.31% | 61.03% | ⚠️ down |
-| `emits_json` | 97.23% | 73.09% | ⚠️ down |
-| `schema_valid` | 93.80% | 69.21% | ⚠️ down |
-| `hallucinated` | 0.10% | 3.38% | ⚠️ up |
+| `protocol` (emits wrapper) | 0.00% | 100.00% | ✅ the fix |
+| `strict` (wrapped + correct) | 0.00% | 83.67% | ✅ the real accuracy |
+| `name_and_args` | 67.08% | 83.67% | ✅ up |
+| `tool_name` | 87.31% | 99.67% | ✅ up |
+| `emits_json` | 97.23% | 100.00% | ✅ up |
+| `schema_valid` | 93.80% | 100.00% | ✅ up |
+| `hallucinated` | 0.10% | 0.00% | ✅ down |
 
-Diagnosis: ~34% of generations degenerate into repetition loops (never emit `</tool_call>` or stop), which accounts for the depressed content metrics. Next lever is more training from this checkpoint.
+The first eval of this checkpoint served it by **merging** the adapter into a bf16 base
+and reported much lower numbers (`strict` 47.6%, ~34% of outputs degenerating into
+repetition). That was traced to the **QLoRA merge**, not the model: the adapter was
+trained against the 4-bit NF4 base, and the exact rows that degenerated after merging are
+clean when the adapter is applied un-merged to that 4-bit base. See the experiment log.
+Open thread: serving the adapter faithfully *and* fast (vLLM can't apply the head LoRA;
+merging degrades) — a likely lead is PEFT's `ensure_weight_tying` for the tied head.
 
 _(Additional checkpoints will be appended here as training progresses.)_
 
